@@ -1,7 +1,4 @@
-use std::{
-    io::{Cursor, Seek, SeekFrom, Write},
-    mem::MaybeUninit,
-};
+use std::io::{Cursor, Seek, SeekFrom, Write};
 
 pub enum Channels {
     Three,
@@ -71,6 +68,7 @@ impl Pixel {
 pub struct Qoi;
 
 impl Qoi {
+    const HEADER_SIZE: usize = 12;
     const PADDING: u8 = 4;
 
     const INDEX: u8 = 0;
@@ -88,29 +86,30 @@ impl Qoi {
 }
 
 #[repr(C, packed)]
-struct QoiHeader {
-    magic: [u8; 4],
+pub struct QoiHeader {
     width: [u8; 2],
     height: [u8; 2],
-    /// This includes the padding length.
-    image_size: [u8; 4],
+    encoded_size_including_padding: [u8; 4],
 }
 
 impl QoiHeader {
-    const SIZE: u32 = std::mem::size_of::<QoiHeader>() as u32;
-
-    fn new(width: u16, height: u16, image_size: usize) -> Self {
+    pub fn new(width: u16, height: u16) -> Self {
         Self {
-            magic: *b"qoif",
             width: width.to_be_bytes(),
             height: height.to_be_bytes(),
-            image_size: u32::try_from(image_size).unwrap().to_be_bytes(),
+            encoded_size_including_padding: [0u8; 4],
         }
     }
 
-    fn as_slice(&self) -> &[u8] {
-        // SAFETY: QoiHeader uses the C layout.
-        unsafe { std::slice::from_raw_parts(self as *const Self as *const u8, Self::SIZE as usize) }
+    fn to_header(&self, encoded_size: u32) -> [u8; Qoi::HEADER_SIZE] {
+        let mut dest = [0u8; Qoi::HEADER_SIZE];
+
+        dest[0..4].copy_from_slice(b"qoif");
+        dest[4..6].copy_from_slice(&self.width);
+        dest[6..8].copy_from_slice(&self.height);
+        dest[8..12].copy_from_slice(&encoded_size.to_be_bytes());
+
+        dest
     }
 
     pub fn width(&self) -> u16 {
@@ -121,43 +120,35 @@ impl QoiHeader {
         u16::from_be_bytes(self.height)
     }
 
-    pub fn encoded_size_including_padding(&self) -> usize {
-        u32::from_be_bytes(self.image_size) as usize
+    /// The size of the image in its raw, uncompressed format.
+    pub fn raw_image_size(&self, channels: Channels) -> usize {
+        self.width() as usize * self.height() as usize * channels.len() as usize
     }
 
-    pub fn encoded_size(&self) -> usize {
+    fn encoded_size_including_padding(&self) -> usize {
+        u32::from_be_bytes(self.encoded_size_including_padding) as usize
+    }
+
+    fn encoded_size(&self) -> usize {
         self.encoded_size_including_padding() as usize - Qoi::PADDING as usize
     }
-}
 
-impl TryFrom<&[u8]> for QoiHeader {
-    // FIXME
-    type Error = ();
-
-    fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        if input.len() < QoiHeader::SIZE as usize {
+    fn new_from_slice(input: &[u8]) -> Result<Self, ()> {
+        if input.len() < Qoi::HEADER_SIZE as usize {
             return Err(());
         }
 
-        let mut header = MaybeUninit::<QoiHeader>::uninit();
+        if &input[0..4] != b"qoif" {
+            return Err(());
+        }
 
-        // SAFETY: QoiHeader uses the C memory layout, it contains no types that
-        // have disallowed values, and the source length is greater or equal to
-        // least equal to the destination length.
-        let header = unsafe {
-            std::ptr::copy(
-                input.as_ptr(),
-                header.as_mut_ptr() as *mut u8,
-                QoiHeader::SIZE as usize,
-            );
-            header.assume_init()
+        let header = QoiHeader {
+            width: input[4..6].try_into().unwrap(),
+            height: input[6..8].try_into().unwrap(),
+            encoded_size_including_padding: input[8..12].try_into().unwrap(),
         };
 
-        if &header.magic == b"qoif" {
-            Ok(header)
-        } else {
-            Err(())
-        }
+        Ok(header)
     }
 }
 
@@ -197,7 +188,7 @@ where
         let mut cursor = Cursor::new(dest.as_mut());
 
         // This will be written later once the encoded size is known.
-        cursor.seek(SeekFrom::Start(QoiHeader::SIZE as u64))?;
+        cursor.seek(SeekFrom::Start(Qoi::HEADER_SIZE as u64))?;
 
         let src = self.as_ref();
         let mut cache = [Pixel::default(); 64];
@@ -324,40 +315,33 @@ where
 
         cursor.write_all(&[0u8; Qoi::PADDING as usize])?;
 
-        let header = QoiHeader::new(
-            width,
-            height,
-            cursor.position() as usize - QoiHeader::SIZE as usize,
-        );
+        let config = QoiHeader::new(width, height);
 
+        let encoded_size = cursor.position() as u32 - Qoi::HEADER_SIZE as u32;
         cursor.seek(SeekFrom::Start(0))?;
-        cursor.write_all(header.as_slice())?;
+        cursor.write_all(&config.to_header(encoded_size)).unwrap();
 
         Ok(())
     }
 }
 
 pub trait QoiDecode {
-    fn qoi_decode(&self, channels: Channels, dest: impl AsMut<[u8]>)
-        -> std::io::Result<(u16, u16)>;
+    fn qoi_decode(&self, channels: Channels, dest: impl AsMut<[u8]>) -> std::io::Result<()>;
+    fn load_qoi_header(&self) -> Result<QoiHeader, ()>;
 }
 
 impl<S> QoiDecode for S
 where
     S: AsRef<[u8]>,
 {
-    fn qoi_decode(
-        &self,
-        channels: Channels,
-        mut dest: impl AsMut<[u8]>,
-    ) -> std::io::Result<(u16, u16)> {
+    fn qoi_decode(&self, channels: Channels, mut dest: impl AsMut<[u8]>) -> std::io::Result<()> {
         let dest = dest.as_mut();
 
         // FIXME
-        let header = QoiHeader::try_from(self.as_ref()).unwrap();
+        let header = QoiHeader::new_from_slice(self.as_ref()).unwrap();
         assert_eq!(
             self.as_ref().len(),
-            header.encoded_size_including_padding() as usize + QoiHeader::SIZE as usize
+            header.encoded_size_including_padding() as usize + Qoi::HEADER_SIZE as usize
         );
         assert_eq!(
             dest.as_ref().len() as usize,
@@ -366,10 +350,10 @@ where
 
         let mut cache = [Pixel::default(); 64];
         let mut run = 0u16;
-        let padding_pos = header.encoded_size() as u32 + QoiHeader::SIZE;
+        let padding_pos = header.encoded_size() + Qoi::HEADER_SIZE;
         let mut pixel = Pixel::default();
         let mut pos = 0;
-        let src = &self.as_ref()[QoiHeader::SIZE as usize..];
+        let src = &self.as_ref()[Qoi::HEADER_SIZE..];
 
         for chunk in dest.chunks_exact_mut(channels.len() as usize) {
             if run > 0 {
@@ -440,82 +424,10 @@ where
             }
         }
 
-        Ok((header.width(), header.height()))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn compare_bytes(l: &[u8], r: &[u8]) {
-        assert_eq!(l.len(), r.len());
-        for i in 0..l.len() {
-            if l[i] != r[i] {
-                panic!("Byte {} doesn't match: {} != {}", i, l[i], r[i]);
-            }
-        }
+        Ok(())
     }
 
-    #[test]
-    fn decode_three_channels() {
-        let encoded = include_bytes!("../tests/three.qoi");
-        let expected = include_bytes!("../tests/three.raw");
-
-        let header = QoiHeader::try_from(encoded.as_ref()).unwrap();
-        assert_eq!(header.width(), 572);
-        assert_eq!(header.height(), 354);
-
-        let mut decoded = Vec::with_capacity(expected.len());
-        decoded.resize(decoded.capacity(), 0);
-
-        let (width, height) = encoded.qoi_decode(Channels::Three, &mut decoded).unwrap();
-        assert_eq!(width, 572);
-        assert_eq!(height, 354);
-        compare_bytes(expected, decoded.as_slice());
-    }
-
-    #[test]
-    fn decode_four_channels() {
-        let encoded = include_bytes!("../tests/four.qoi");
-        let expected = include_bytes!("../tests/four.raw");
-
-        let header = QoiHeader::try_from(encoded.as_ref()).unwrap();
-        assert_eq!(header.width(), 572);
-        assert_eq!(header.height(), 354);
-
-        let mut decoded = Vec::with_capacity(expected.len());
-        decoded.resize(decoded.capacity(), 0);
-
-        let (width, height) = encoded.qoi_decode(Channels::Four, &mut decoded).unwrap();
-        assert_eq!(width, 572);
-        assert_eq!(height, 354);
-        compare_bytes(expected, decoded.as_slice());
-    }
-
-    #[test]
-    fn encode_three_channels() {
-        let expected = include_bytes!("../tests/three.qoi");
-        let raw = include_bytes!("../tests/three.raw");
-        let mut encoded = Vec::with_capacity(expected.len());
-        encoded.resize(encoded.capacity(), 0);
-
-        raw.qoi_encode(572, 354, Channels::Three, &mut encoded)
-            .unwrap();
-
-        compare_bytes(expected, &encoded);
-    }
-
-    #[test]
-    fn encode_four_channels() {
-        let expected = include_bytes!("../tests/four.qoi");
-        let raw = include_bytes!("../tests/four.raw");
-        let mut encoded = Vec::with_capacity(expected.len());
-        encoded.resize(encoded.capacity(), 0);
-
-        raw.qoi_encode(572, 354, Channels::Four, &mut encoded)
-            .unwrap();
-
-        compare_bytes(expected, &encoded);
+    fn load_qoi_header(&self) -> Result<QoiHeader, ()> {
+        QoiHeader::new_from_slice(self.as_ref())
     }
 }
