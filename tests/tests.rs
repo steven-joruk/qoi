@@ -1,4 +1,4 @@
-use qoi::{Channels, QoiDecode, QoiEncode};
+use qoi::{Channels, QoiDecode, QoiEncode, QoiError};
 
 fn compare_bytes(l: &[u8], r: &[u8]) {
     assert_eq!(l.len(), r.len());
@@ -69,4 +69,28 @@ fn encode_four_channels() {
         .unwrap();
 
     compare_bytes(expected, &encoded);
+}
+
+#[test]
+fn header_magic() {
+    let mut buffer = Vec::new();
+    buffer.resize(13, 0);
+    assert!(matches!(
+        b"boif1234112341234123423412341234"
+            .qoi_decode(Channels::Three, &mut buffer)
+            .unwrap_err(),
+        QoiError::InvalidHeader
+    ));
+}
+
+#[test]
+fn buffer_size_errors() {
+    let mut buffer = Vec::new();
+    buffer.resize(1024, 0);
+    assert!(matches!(
+        b"qoif1234123412341234"
+            .qoi_decode(Channels::Three, &mut buffer)
+            .unwrap_err(),
+        QoiError::OutputTooSmall
+    ));
 }

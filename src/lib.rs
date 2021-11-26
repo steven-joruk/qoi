@@ -1,5 +1,39 @@
-use std::io::{Cursor, Seek, SeekFrom, Write};
+use std::{
+    error::Error,
+    fmt::Display,
+    io::{Cursor, Seek, SeekFrom, Write},
+};
 
+#[derive(Debug)]
+pub enum QoiError {
+    InputTooSmall,
+    OutputTooSmall,
+    InvalidHeader,
+    Io(std::io::Error),
+}
+
+impl Error for QoiError {}
+
+impl Display for QoiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QoiError::InputTooSmall => f.write_str("The input is too small"),
+            QoiError::OutputTooSmall => f.write_str("The output buffer is too small"),
+            QoiError::InvalidHeader => f.write_str("The header is invalid"),
+            QoiError::Io(inner) => {
+                f.write_fmt(format_args!("An I/O error occurred: {}", inner.to_string()))
+            }
+        }
+    }
+}
+
+impl From<std::io::Error> for QoiError {
+    fn from(error: std::io::Error) -> Self {
+        QoiError::Io(error)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub enum Channels {
     Three,
     Four,
@@ -133,19 +167,25 @@ impl QoiHeader {
         self.encoded_size_including_padding() as usize - Qoi::PADDING as usize
     }
 
-    fn new_from_slice(input: &[u8]) -> Result<Self, ()> {
+    fn new_from_slice(input: &[u8]) -> Result<Self, QoiError> {
         if input.len() < Qoi::HEADER_SIZE as usize {
-            return Err(());
+            return Err(QoiError::InputTooSmall);
         }
 
         if &input[0..4] != b"qoif" {
-            return Err(());
+            return Err(QoiError::InvalidHeader);
         }
 
         let header = QoiHeader {
-            width: input[4..6].try_into().unwrap(),
-            height: input[6..8].try_into().unwrap(),
-            encoded_size_including_padding: input[8..12].try_into().unwrap(),
+            width: input[4..6]
+                .try_into()
+                .map_err(|_| QoiError::InputTooSmall)?,
+            height: input[6..8]
+                .try_into()
+                .map_err(|_| QoiError::InputTooSmall)?,
+            encoded_size_including_padding: input[8..12]
+                .try_into()
+                .map_err(|_| QoiError::InputTooSmall)?,
         };
 
         Ok(header)
@@ -171,7 +211,7 @@ pub trait QoiEncode {
         height: u16,
         channels: Channels,
         dest: impl AsMut<[u8]>,
-    ) -> std::io::Result<()>;
+    ) -> Result<usize, QoiError>;
 }
 
 impl<S> QoiEncode for S
@@ -184,7 +224,7 @@ where
         height: u16,
         channels: Channels,
         mut dest: impl AsMut<[u8]>,
-    ) -> std::io::Result<()> {
+    ) -> Result<usize, QoiError> {
         let mut cursor = Cursor::new(dest.as_mut());
 
         // This will be written later once the encoded size is known.
@@ -195,10 +235,9 @@ where
         let mut previous_pixel = Pixel::default();
         let mut run = 0u16;
 
-        assert_eq!(
-            src.len() as usize,
-            width as usize * height as usize * channels.len() as usize
-        );
+        if src.len() < width as usize * height as usize * channels.len() as usize {
+            return Err(QoiError::OutputTooSmall);
+        }
 
         for pos in (0..src.len()).step_by(channels.len() as usize) {
             let a = if channels.len() == 4 {
@@ -321,32 +360,32 @@ where
         cursor.seek(SeekFrom::Start(0))?;
         cursor.write_all(&config.to_header(encoded_size)).unwrap();
 
-        Ok(())
+        Ok(encoded_size as usize)
     }
 }
 
 pub trait QoiDecode {
-    fn qoi_decode(&self, channels: Channels, dest: impl AsMut<[u8]>) -> std::io::Result<()>;
-    fn load_qoi_header(&self) -> Result<QoiHeader, ()>;
+    fn qoi_decode(&self, channels: Channels, dest: impl AsMut<[u8]>) -> Result<(), QoiError>;
+    fn load_qoi_header(&self) -> Result<QoiHeader, QoiError>;
 }
 
 impl<S> QoiDecode for S
 where
     S: AsRef<[u8]>,
 {
-    fn qoi_decode(&self, channels: Channels, mut dest: impl AsMut<[u8]>) -> std::io::Result<()> {
+    fn qoi_decode(&self, channels: Channels, mut dest: impl AsMut<[u8]>) -> Result<(), QoiError> {
         let dest = dest.as_mut();
 
-        // FIXME
-        let header = QoiHeader::new_from_slice(self.as_ref()).unwrap();
-        assert_eq!(
-            self.as_ref().len(),
-            header.encoded_size_including_padding() as usize + Qoi::HEADER_SIZE as usize
-        );
-        assert_eq!(
-            dest.as_ref().len() as usize,
-            header.width() as usize * header.height() as usize * channels.len() as usize
-        );
+        let header = QoiHeader::new_from_slice(self.as_ref())?;
+        if self.as_ref().len()
+            < header.encoded_size_including_padding() as usize + Qoi::HEADER_SIZE as usize
+        {
+            return Err(QoiError::InputTooSmall);
+        }
+
+        if dest.as_ref().len() < header.raw_image_size(channels) {
+            return Err(QoiError::OutputTooSmall);
+        }
 
         let mut cache = [Pixel::default(); 64];
         let mut run = 0u16;
@@ -427,7 +466,7 @@ where
         Ok(())
     }
 
-    fn load_qoi_header(&self) -> Result<QoiHeader, ()> {
+    fn load_qoi_header(&self) -> Result<QoiHeader, QoiError> {
         QoiHeader::new_from_slice(self.as_ref())
     }
 }
