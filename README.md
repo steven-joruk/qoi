@@ -1,4 +1,4 @@
-**This is not working yet. It's still in progress.**
+**This is working but the API will change very soon.**
 
 A Rust implemention of the “Quite OK Image” format for fast, lossless image
 compression.
@@ -11,8 +11,8 @@ Apache-2.0 OR MIT.
 
 ## To do
 
-- Make integer casts more strict to prevent overflows
-- Test cases
+- Add errors and make integer casts more strict to prevent overflows
+- More tests
 - Benchmarks
 - Fuzzing
 - Replace unsafe without reducing performance

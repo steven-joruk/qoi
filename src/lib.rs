@@ -43,7 +43,7 @@ impl Pixel {
     }
 
     #[inline]
-    fn hash(&self) -> usize {
+    fn cache_index(&self) -> usize {
         (self.r ^ self.g ^ self.b ^ self.a) as usize % 64
     }
 
@@ -121,12 +121,12 @@ impl QoiHeader {
         u16::from_be_bytes(self.height)
     }
 
-    pub fn image_size_including_padding(&self) -> usize {
+    pub fn encoded_size_including_padding(&self) -> usize {
         u32::from_be_bytes(self.image_size) as usize
     }
 
-    pub fn image_size(&self) -> usize {
-        self.image_size_including_padding() as usize - Qoi::PADDING as usize
+    pub fn encoded_size(&self) -> usize {
+        self.encoded_size_including_padding() as usize - Qoi::PADDING as usize
     }
 }
 
@@ -196,22 +196,37 @@ where
     ) -> std::io::Result<()> {
         let mut cursor = Cursor::new(dest.as_mut());
 
-        // This will be written later once the size is known.
+        // This will be written later once the encoded size is known.
         cursor.seek(SeekFrom::Start(QoiHeader::SIZE as u64))?;
 
+        let src = self.as_ref();
         let mut cache = [Pixel::default(); 64];
         let mut previous_pixel = Pixel::default();
         let mut run = 0u16;
 
-        for chunk in self.as_ref().chunks_exact(channels.len() as usize) {
-            let a = if channels.len() == 4 { chunk[3] } else { 0 };
-            let pixel = Pixel::new(chunk[0], chunk[1], chunk[2], a);
+        assert_eq!(
+            src.len() as usize,
+            width as usize * height as usize * channels.len() as usize
+        );
+
+        for pos in (0..src.len()).step_by(channels.len() as usize) {
+            let a = if channels.len() == 4 {
+                src[pos + 3]
+            } else {
+                255
+            };
+
+            let pixel = Pixel::new(src[pos], src[pos + 1], src[pos + 2], a);
 
             if pixel == previous_pixel {
                 run += 1;
             }
 
-            if run > 0 && (run == 0x2020 || pixel != previous_pixel) {
+            if run > 0
+                && (run == 0x2020
+                    || pixel != previous_pixel
+                    || pos == src.len() - channels.len() as usize)
+            {
                 if run < 33 {
                     run -= 1;
                     cursor.write_all(&[Qoi::RUN_8 | (run as u8)]).unwrap();
@@ -226,15 +241,14 @@ where
             }
 
             if pixel != previous_pixel {
-                let cache_index = pixel.hash();
-                let cached_pixel = &mut cache[cache_index];
+                let cache_index = pixel.cache_index();
 
-                if &pixel == cached_pixel {
+                if pixel == cache[cache_index] {
                     cursor
                         .write_all(&[Qoi::INDEX | (cache_index as u8)])
                         .unwrap();
                 } else {
-                    *cached_pixel = pixel;
+                    cache[cache_index] = pixel;
 
                     let dr = pixel.r as i16 - previous_pixel.r as i16;
                     let dg = pixel.g as i16 - previous_pixel.g as i16;
@@ -284,9 +298,23 @@ where
                             | if db != 0 { 2 } else { 0 }
                             | if da != 0 { 1 } else { 0 };
 
-                        cursor
-                            .write_all(&[command, pixel.r, pixel.g, pixel.b, pixel.a])
-                            .unwrap();
+                        cursor.write_all(&[command]).unwrap();
+
+                        if dr != 0 {
+                            cursor.write_all(&[pixel.r]).unwrap();
+                        }
+
+                        if dg != 0 {
+                            cursor.write_all(&[pixel.g]).unwrap();
+                        }
+
+                        if db != 0 {
+                            cursor.write_all(&[pixel.b]).unwrap();
+                        }
+
+                        if da != 0 {
+                            cursor.write_all(&[pixel.a]).unwrap();
+                        }
                     }
                 }
             }
@@ -329,7 +357,7 @@ where
         let header = QoiHeader::try_from(self.as_ref()).unwrap();
         assert_eq!(
             self.as_ref().len(),
-            header.image_size_including_padding() as usize + QoiHeader::SIZE as usize
+            header.encoded_size_including_padding() as usize + QoiHeader::SIZE as usize
         );
         assert_eq!(
             dest.as_ref().len() as usize,
@@ -338,7 +366,7 @@ where
 
         let mut cache = [Pixel::default(); 64];
         let mut run = 0u16;
-        let padding_pos = header.image_size() as u32 + QoiHeader::SIZE;
+        let padding_pos = header.encoded_size() as u32 + QoiHeader::SIZE;
         let mut pixel = Pixel::default();
         let mut pos = 0;
         let src = &self.as_ref()[QoiHeader::SIZE as usize..];
@@ -375,7 +403,6 @@ where
                     pos += 1;
 
                     pixel.modify_r((((b1 & 0x0f) << 1) | (b2 >> 7)) as i8 - 15);
-
                     pixel.modify_g(((b2 & 0x7c) >> 2) as i8 - 15);
                     pixel.modify_b((((b2 & 0x03) << 3) | ((b3 & 0xe0) >> 5)) as i8 - 15);
                     pixel.modify_a((b3 & 0x1f) as i8 - 15);
@@ -401,7 +428,7 @@ where
                     }
                 }
 
-                cache[pixel.hash() % 64] = pixel;
+                cache[pixel.cache_index()] = pixel;
             }
 
             chunk[0] = pixel.r;
@@ -425,34 +452,70 @@ mod test {
         assert_eq!(l.len(), r.len());
         for i in 0..l.len() {
             if l[i] != r[i] {
-                panic!("Byte {} doesn't match", i);
+                panic!("Byte {} doesn't match: {} != {}", i, l[i], r[i]);
             }
         }
     }
 
     #[test]
-    fn round_trip_four_channels() {
-        const INPUT: &[u8] = include_bytes!("../four.qoi");
-        const RAW: &[u8] = include_bytes!("../four.raw");
+    fn decode_three_channels() {
+        let encoded = include_bytes!("../three.qoi");
+        let expected = include_bytes!("../three.raw");
 
-        let header = QoiHeader::try_from(INPUT).unwrap();
+        let header = QoiHeader::try_from(encoded.as_ref()).unwrap();
         assert_eq!(header.width(), 572);
         assert_eq!(header.height(), 354);
 
-        let mut decoded = Vec::with_capacity(RAW.len());
+        let mut decoded = Vec::with_capacity(expected.len());
         decoded.resize(decoded.capacity(), 0);
 
-        let (width, height) = INPUT.qoi_decode(Channels::Four, &mut decoded).unwrap();
+        let (width, height) = encoded.qoi_decode(Channels::Three, &mut decoded).unwrap();
         assert_eq!(width, 572);
         assert_eq!(height, 354);
-        compare_bytes(RAW, decoded.as_slice());
+        compare_bytes(expected, decoded.as_slice());
+    }
 
-        let mut encoded = Vec::with_capacity(INPUT.len());
+    #[test]
+    fn decode_four_channels() {
+        let encoded = include_bytes!("../four.qoi");
+        let expected = include_bytes!("../four.raw");
+
+        let header = QoiHeader::try_from(encoded.as_ref()).unwrap();
+        assert_eq!(header.width(), 572);
+        assert_eq!(header.height(), 354);
+
+        let mut decoded = Vec::with_capacity(expected.len());
+        decoded.resize(decoded.capacity(), 0);
+
+        let (width, height) = encoded.qoi_decode(Channels::Four, &mut decoded).unwrap();
+        assert_eq!(width, 572);
+        assert_eq!(height, 354);
+        compare_bytes(expected, decoded.as_slice());
+    }
+
+    #[test]
+    fn encode_three_channels() {
+        let expected = include_bytes!("../three.qoi");
+        let raw = include_bytes!("../three.raw");
+        let mut encoded = Vec::with_capacity(expected.len());
         encoded.resize(encoded.capacity(), 0);
 
-        decoded
-            .qoi_encode(width, height, Channels::Four, &mut encoded)
+        raw.qoi_encode(572, 354, Channels::Three, &mut encoded)
             .unwrap();
-        compare_bytes(INPUT, encoded.as_slice());
+
+        compare_bytes(expected, &encoded);
+    }
+
+    #[test]
+    fn encode_four_channels() {
+        let expected = include_bytes!("../four.qoi");
+        let raw = include_bytes!("../four.raw");
+        let mut encoded = Vec::with_capacity(expected.len());
+        encoded.resize(encoded.capacity(), 0);
+
+        raw.qoi_encode(572, 354, Channels::Four, &mut encoded)
+            .unwrap();
+
+        compare_bytes(expected, &encoded);
     }
 }
