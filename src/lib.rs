@@ -212,6 +212,13 @@ pub trait QoiEncode {
         channels: Channels,
         dest: impl AsMut<[u8]>,
     ) -> Result<usize, QoiError>;
+
+    fn qoi_encode_to_vec(
+        &self,
+        width: u16,
+        height: u16,
+        channels: Channels,
+    ) -> Result<Vec<u8>, QoiError>;
 }
 
 impl<S> QoiEncode for S
@@ -360,7 +367,25 @@ where
         cursor.seek(SeekFrom::Start(0))?;
         cursor.write_all(&config.to_header(encoded_size)).unwrap();
 
-        Ok(encoded_size as usize)
+        Ok(encoded_size as usize + Qoi::HEADER_SIZE as usize)
+    }
+
+    fn qoi_encode_to_vec(
+        &self,
+        width: u16,
+        height: u16,
+        channels: Channels,
+    ) -> Result<Vec<u8>, QoiError> {
+        let mut dest = Vec::new();
+        dest.resize(
+            width as usize * height as usize * channels.len() as usize
+                + Qoi::HEADER_SIZE
+                + Qoi::PADDING as usize,
+            0,
+        );
+        let size = self.qoi_encode(width, height, channels, dest.as_mut_slice())?;
+        dest.resize(size, 0);
+        Ok(dest)
     }
 }
 

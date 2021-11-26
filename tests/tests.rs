@@ -29,13 +29,7 @@ fn decode_four_channels() {
 fn encode_three_channels() {
     let expected = include_bytes!("../tests/three.qoi");
     let raw = include_bytes!("../tests/three.raw");
-
-    let mut encoded = Vec::new();
-    encoded.resize(expected.len(), 0);
-
-    raw.qoi_encode(572, 354, Channels::Three, &mut encoded)
-        .unwrap();
-
+    let encoded = raw.qoi_encode_to_vec(572, 354, Channels::Three).unwrap();
     compare_bytes(expected, &encoded);
 }
 
@@ -43,13 +37,7 @@ fn encode_three_channels() {
 fn encode_four_channels() {
     let expected = include_bytes!("../tests/four.qoi");
     let raw = include_bytes!("../tests/four.raw");
-
-    let mut encoded = Vec::new();
-    encoded.resize(expected.len(), 0);
-
-    raw.qoi_encode(572, 354, Channels::Four, &mut encoded)
-        .unwrap();
-
+    let encoded = raw.qoi_encode_to_vec(572, 354, Channels::Four).unwrap();
     compare_bytes(expected, &encoded);
 }
 
