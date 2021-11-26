@@ -1,3 +1,6 @@
+[![docs.rs](https://img.shields.io/crates/v/qoi)](https://crates.io/crates/qoi)
+[![docs.rs](https://img.shields.io/docsrs/qoi)](https://docs.rs/qoi)
+
 **This is working but the API will change very soon.**
 
 A Rust implemention of the “Quite OK Image” format for fast, lossless image
