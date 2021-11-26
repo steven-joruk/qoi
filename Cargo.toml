@@ -6,3 +6,10 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/steven-joruk/qoi"
 description = "An implementation of Phoboslab's QOI image format."
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "benches"
+harness = false

@@ -16,7 +16,6 @@ Apache-2.0 OR MIT.
 
 - Add errors and make integer casts more strict to prevent overflows
 - More tests
-- Benchmarks
 - Fuzzing
 - Replace unsafe without reducing performance
 - Maybe make it generic over `Write+Seek` and the number of channels.
