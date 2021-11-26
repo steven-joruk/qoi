@@ -459,8 +459,8 @@ mod test {
 
     #[test]
     fn decode_three_channels() {
-        let encoded = include_bytes!("../three.qoi");
-        let expected = include_bytes!("../three.raw");
+        let encoded = include_bytes!("../tests/three.qoi");
+        let expected = include_bytes!("../tests/three.raw");
 
         let header = QoiHeader::try_from(encoded.as_ref()).unwrap();
         assert_eq!(header.width(), 572);
@@ -477,8 +477,8 @@ mod test {
 
     #[test]
     fn decode_four_channels() {
-        let encoded = include_bytes!("../four.qoi");
-        let expected = include_bytes!("../four.raw");
+        let encoded = include_bytes!("../tests/four.qoi");
+        let expected = include_bytes!("../tests/four.raw");
 
         let header = QoiHeader::try_from(encoded.as_ref()).unwrap();
         assert_eq!(header.width(), 572);
@@ -495,8 +495,8 @@ mod test {
 
     #[test]
     fn encode_three_channels() {
-        let expected = include_bytes!("../three.qoi");
-        let raw = include_bytes!("../three.raw");
+        let expected = include_bytes!("../tests/three.qoi");
+        let raw = include_bytes!("../tests/three.raw");
         let mut encoded = Vec::with_capacity(expected.len());
         encoded.resize(encoded.capacity(), 0);
 
@@ -508,8 +508,8 @@ mod test {
 
     #[test]
     fn encode_four_channels() {
-        let expected = include_bytes!("../four.qoi");
-        let raw = include_bytes!("../four.raw");
+        let expected = include_bytes!("../tests/four.qoi");
+        let raw = include_bytes!("../tests/four.raw");
         let mut encoded = Vec::with_capacity(expected.len());
         encoded.resize(encoded.capacity(), 0);
 
