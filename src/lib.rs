@@ -49,7 +49,6 @@ impl Channels {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[repr(C, packed)]
 struct Pixel {
     r: u8,
     g: u8,
@@ -119,19 +118,19 @@ impl Qoi {
     const MASK_4: u8 = 0b1111_0000;
 }
 
-#[repr(C, packed)]
+#[derive(Debug)]
 pub struct QoiHeader {
-    width: [u8; 2],
-    height: [u8; 2],
-    encoded_size_including_padding: [u8; 4],
+    width: u16,
+    height: u16,
+    encoded_size_including_padding: u32,
 }
 
 impl QoiHeader {
     pub fn new(width: u16, height: u16) -> Self {
         Self {
-            width: width.to_be_bytes(),
-            height: height.to_be_bytes(),
-            encoded_size_including_padding: [0u8; 4],
+            width,
+            height,
+            encoded_size_including_padding: 0,
         }
     }
 
@@ -139,19 +138,19 @@ impl QoiHeader {
         let mut dest = [0u8; Qoi::HEADER_SIZE];
 
         dest[0..4].copy_from_slice(b"qoif");
-        dest[4..6].copy_from_slice(&self.width);
-        dest[6..8].copy_from_slice(&self.height);
+        dest[4..6].copy_from_slice(&self.width.to_be_bytes());
+        dest[6..8].copy_from_slice(&self.height.to_be_bytes());
         dest[8..12].copy_from_slice(&encoded_size.to_be_bytes());
 
         dest
     }
 
     pub fn width(&self) -> u16 {
-        u16::from_be_bytes(self.width)
+        self.width
     }
 
     pub fn height(&self) -> u16 {
-        u16::from_be_bytes(self.height)
+        self.height
     }
 
     /// The size of the image in its raw, uncompressed format.
@@ -160,7 +159,7 @@ impl QoiHeader {
     }
 
     fn encoded_size_including_padding(&self) -> usize {
-        u32::from_be_bytes(self.encoded_size_including_padding) as usize
+        self.encoded_size_including_padding as usize
     }
 
     fn encoded_size(&self) -> usize {
@@ -177,15 +176,21 @@ impl QoiHeader {
         }
 
         let header = QoiHeader {
-            width: input[4..6]
-                .try_into()
-                .map_err(|_| QoiError::InputTooSmall)?,
-            height: input[6..8]
-                .try_into()
-                .map_err(|_| QoiError::InputTooSmall)?,
-            encoded_size_including_padding: input[8..12]
-                .try_into()
-                .map_err(|_| QoiError::InputTooSmall)?,
+            width: u16::from_be_bytes(
+                input[4..6]
+                    .try_into()
+                    .map_err(|_| QoiError::InputTooSmall)?,
+            ),
+            height: u16::from_be_bytes(
+                input[6..8]
+                    .try_into()
+                    .map_err(|_| QoiError::InputTooSmall)?,
+            ),
+            encoded_size_including_padding: u32::from_be_bytes(
+                input[8..12]
+                    .try_into()
+                    .map_err(|_| QoiError::InputTooSmall)?,
+            ),
         };
 
         Ok(header)
