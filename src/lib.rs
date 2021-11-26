@@ -366,6 +366,7 @@ where
 
 pub trait QoiDecode {
     fn qoi_decode(&self, channels: Channels, dest: impl AsMut<[u8]>) -> Result<(), QoiError>;
+    fn qoi_decode_to_vec(&self, channels: Channels) -> Result<Vec<u8>, QoiError>;
     fn load_qoi_header(&self) -> Result<QoiHeader, QoiError>;
 }
 
@@ -464,6 +465,14 @@ where
         }
 
         Ok(())
+    }
+
+    fn qoi_decode_to_vec(&self, channels: Channels) -> Result<Vec<u8>, QoiError> {
+        let mut dest = Vec::new();
+        let header = QoiHeader::new_from_slice(self.as_ref())?;
+        dest.resize(header.raw_image_size(channels), 0);
+        self.qoi_decode(channels, &mut dest)?;
+        Ok(dest)
     }
 
     fn load_qoi_header(&self) -> Result<QoiHeader, QoiError> {

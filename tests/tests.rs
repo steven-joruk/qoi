@@ -13,16 +13,7 @@ fn compare_bytes(l: &[u8], r: &[u8]) {
 fn decode_three_channels() {
     let encoded = include_bytes!("../tests/three.qoi");
     let expected = include_bytes!("../tests/three.raw");
-
-    let header = encoded.load_qoi_header().unwrap();
-    assert_eq!(header.width(), 572);
-    assert_eq!(header.height(), 354);
-    assert_eq!(header.raw_image_size(Channels::Three), expected.len());
-
-    let mut decoded = Vec::new();
-    decoded.resize(header.raw_image_size(Channels::Three), 0);
-
-    encoded.qoi_decode(Channels::Three, &mut decoded).unwrap();
+    let decoded = encoded.qoi_decode_to_vec(Channels::Three).unwrap();
     compare_bytes(expected, decoded.as_slice());
 }
 
@@ -30,16 +21,7 @@ fn decode_three_channels() {
 fn decode_four_channels() {
     let encoded = include_bytes!("../tests/four.qoi");
     let expected = include_bytes!("../tests/four.raw");
-
-    let header = encoded.load_qoi_header().unwrap();
-    assert_eq!(header.width(), 572);
-    assert_eq!(header.height(), 354);
-    assert_eq!(header.raw_image_size(Channels::Four), expected.len());
-
-    let mut decoded = Vec::new();
-    decoded.resize(expected.len(), 0);
-
-    encoded.qoi_decode(Channels::Four, &mut decoded).unwrap();
+    let decoded = encoded.qoi_decode_to_vec(Channels::Four).unwrap();
     compare_bytes(expected, decoded.as_slice());
 }
 
@@ -73,11 +55,9 @@ fn encode_four_channels() {
 
 #[test]
 fn header_magic() {
-    let mut buffer = Vec::new();
-    buffer.resize(13, 0);
     assert!(matches!(
         b"boif1234112341234123423412341234"
-            .qoi_decode(Channels::Three, &mut buffer)
+            .qoi_decode_to_vec(Channels::Three)
             .unwrap_err(),
         QoiError::InvalidHeader
     ));
@@ -87,10 +67,14 @@ fn header_magic() {
 fn buffer_size_errors() {
     let mut buffer = Vec::new();
     buffer.resize(1024, 0);
-    assert!(matches!(
-        b"qoif1234123412341234"
-            .qoi_decode(Channels::Three, &mut buffer)
-            .unwrap_err(),
-        QoiError::OutputTooSmall
-    ));
+
+    let error = b"qoif1234123412341234"
+        .qoi_decode(Channels::Three, &mut buffer)
+        .unwrap_err();
+    assert!(matches!(error, QoiError::InputTooSmall));
+
+    let error = b"qoif"
+        .qoi_decode(Channels::Three, &mut buffer)
+        .unwrap_err();
+    assert!(matches!(error, QoiError::InputTooSmall));
 }
