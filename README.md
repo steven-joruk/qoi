@@ -12,6 +12,7 @@ Apache-2.0 OR MIT.
 
 ## To do
 
+- Verify it against all test images from here https://phoboslab.org/files/qoibench/
 - Make integer casts more strict to prevent overflows
 - More tests
 - Fuzzing

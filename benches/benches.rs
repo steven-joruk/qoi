@@ -1,49 +1,39 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use qoi::{QoiDecode, QoiEncode};
 
-pub fn criterion_benchmark(c: &mut Criterion) {
-    let three_raw = include_bytes!("../tests/three.raw");
-    let three_encoded = include_bytes!("../tests/three.qoi");
-    let four_raw = include_bytes!("../tests/four.raw");
-    let four_encoded = include_bytes!("../tests/four.qoi");
-
-    let mut buffer = Vec::new();
-    buffer.resize(three_raw.len(), 0);
+pub fn three_channels(c: &mut Criterion) {
+    let raw = include_bytes!("../tests/three.raw");
+    let encoded = include_bytes!("../tests/three.qoi");
+    let header = encoded.load_qoi_header().unwrap();
 
     c.bench_function("decode 3 channels", |b| {
-        b.iter(|| {
-            three_encoded
-                .qoi_decode(qoi::Channels::Three, buffer.as_mut_slice())
-                .unwrap()
-        })
-    });
-
-    buffer.resize(four_raw.len(), 0);
-
-    c.bench_function("decode 4 channels", |b| {
-        b.iter(|| {
-            four_encoded
-                .qoi_decode(qoi::Channels::Four, buffer.as_mut_slice())
-                .unwrap()
-        })
+        b.iter(|| encoded.qoi_decode_to_vec(qoi::Channels::Three).unwrap())
     });
 
     c.bench_function("encode 3 channels", |b| {
         b.iter(|| {
-            three_raw
-                .qoi_encode(572, 354, qoi::Channels::Three, &mut buffer)
-                .unwrap();
-        })
-    });
-
-    c.bench_function("encode 4 channels", |b| {
-        b.iter(|| {
-            four_raw
-                .qoi_encode(572, 354, qoi::Channels::Four, &mut buffer)
+            raw.qoi_encode_to_vec(header.width(), header.height(), qoi::Channels::Three)
                 .unwrap();
         })
     });
 }
 
-criterion_group!(benches, criterion_benchmark);
+pub fn four_channels(c: &mut Criterion) {
+    let raw = include_bytes!("../tests/four.raw");
+    let encoded = include_bytes!("../tests/four.qoi");
+    let header = encoded.load_qoi_header().unwrap();
+
+    c.bench_function("decode 4 channels", |b| {
+        b.iter(|| encoded.qoi_decode_to_vec(qoi::Channels::Four).unwrap())
+    });
+
+    c.bench_function("encode 4 channels", |b| {
+        b.iter(|| {
+            raw.qoi_encode_to_vec(header.width(), header.height(), qoi::Channels::Four)
+                .unwrap();
+        })
+    });
+}
+
+criterion_group!(benches, three_channels, four_channels);
 criterion_main!(benches);

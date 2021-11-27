@@ -1,12 +1,12 @@
 use qoi::{Channels, QoiDecode, QoiEncode, QoiError};
 
 fn compare_bytes(l: &[u8], r: &[u8]) {
-    assert_eq!(l.len(), r.len());
     for i in 0..l.len() {
         if l[i] != r[i] {
             panic!("Byte {} doesn't match: {} != {}", i, l[i], r[i]);
         }
     }
+    assert_eq!(l.len(), r.len());
 }
 
 #[test]
@@ -28,16 +28,23 @@ fn decode_four_channels() {
 #[test]
 fn encode_three_channels() {
     let expected = include_bytes!("../tests/three.qoi");
+    let header = expected.load_qoi_header().unwrap();
+
     let raw = include_bytes!("../tests/three.raw");
-    let encoded = raw.qoi_encode_to_vec(572, 354, Channels::Three).unwrap();
+    let encoded = raw
+        .qoi_encode_to_vec(header.width(), header.height(), Channels::Three)
+        .unwrap();
     compare_bytes(expected, &encoded);
 }
 
 #[test]
 fn encode_four_channels() {
     let expected = include_bytes!("../tests/four.qoi");
+    let header = expected.load_qoi_header().unwrap();
     let raw = include_bytes!("../tests/four.raw");
-    let encoded = raw.qoi_encode_to_vec(572, 354, Channels::Four).unwrap();
+    let encoded = raw
+        .qoi_encode_to_vec(header.width(), header.height(), Channels::Four)
+        .unwrap();
     compare_bytes(expected, &encoded);
 }
 
@@ -47,7 +54,7 @@ fn header_magic() {
         b"boif1234112341234123423412341234"
             .qoi_decode_to_vec(Channels::Three)
             .unwrap_err(),
-        QoiError::InvalidHeader
+        QoiError::IncorrectHeaderMagic
     ));
 }
 
@@ -59,10 +66,10 @@ fn buffer_size_errors() {
     let error = b"qoif1234123412341234"
         .qoi_decode(Channels::Three, &mut buffer)
         .unwrap_err();
-    assert!(matches!(error, QoiError::InputTooSmall));
+    assert!(matches!(error, QoiError::InputSize));
 
     let error = b"qoif"
         .qoi_decode(Channels::Three, &mut buffer)
         .unwrap_err();
-    assert!(matches!(error, QoiError::InputTooSmall));
+    assert!(matches!(error, QoiError::InputSmallerThanHeader));
 }

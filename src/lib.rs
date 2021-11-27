@@ -2,7 +2,9 @@ use std::{error::Error, fmt::Display};
 
 #[derive(Debug)]
 pub enum QoiError {
-    InputTooSmall,
+    InputSmallerThanHeader,
+    IncorrectHeaderMagic,
+    InputSize,
     OutputTooSmall,
     InvalidHeader,
     Io(std::io::Error),
@@ -13,10 +15,14 @@ impl Error for QoiError {}
 impl Display for QoiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            QoiError::InputTooSmall => f.write_str("The input is too small"),
-            QoiError::OutputTooSmall => f.write_str("The output buffer is too small"),
-            QoiError::InvalidHeader => f.write_str("The header is invalid"),
-            QoiError::Io(inner) => {
+            Self::InputSmallerThanHeader => {
+                f.write_str("The input is too small to contain a header")
+            }
+            Self::IncorrectHeaderMagic => f.write_str("The header magic value i wrong"),
+            Self::InputSize => f.write_str("The input size is invalid"),
+            Self::OutputTooSmall => f.write_str("The output buffer is too small"),
+            Self::InvalidHeader => f.write_str("The header is invalid"),
+            Self::Io(inner) => {
                 f.write_fmt(format_args!("An I/O error occurred: {}", inner.to_string()))
             }
         }
@@ -167,29 +173,17 @@ impl QoiHeader {
 
     fn new_from_slice(input: &[u8]) -> Result<Self, QoiError> {
         if input.len() < Qoi::HEADER_SIZE as usize {
-            return Err(QoiError::InputTooSmall);
+            return Err(QoiError::InputSmallerThanHeader);
         }
 
         if &input[0..4] != b"qoif" {
-            return Err(QoiError::InvalidHeader);
+            return Err(QoiError::IncorrectHeaderMagic);
         }
 
         let header = QoiHeader {
-            width: u16::from_be_bytes(
-                input[4..6]
-                    .try_into()
-                    .map_err(|_| QoiError::InputTooSmall)?,
-            ),
-            height: u16::from_be_bytes(
-                input[6..8]
-                    .try_into()
-                    .map_err(|_| QoiError::InputTooSmall)?,
-            ),
-            encoded_size_including_padding: u32::from_be_bytes(
-                input[8..12]
-                    .try_into()
-                    .map_err(|_| QoiError::InputTooSmall)?,
-            ),
+            width: u16::from_be_bytes(input[4..6].try_into().unwrap()),
+            height: u16::from_be_bytes(input[6..8].try_into().unwrap()),
+            encoded_size_including_padding: u32::from_be_bytes(input[8..12].try_into().unwrap()),
         };
 
         Ok(header)
@@ -245,8 +239,8 @@ where
         let mut previous_pixel = Pixel::default();
         let mut run = 0u16;
 
-        if src.len() < width as usize * height as usize * channels.len() as usize {
-            return Err(QoiError::OutputTooSmall);
+        if src.len() != width as usize * height as usize * channels.len() as usize {
+            return Err(QoiError::InputSize);
         }
 
         for src_pos in (0..src.len()).step_by(channels.len() as usize) {
@@ -425,7 +419,7 @@ where
         if self.as_ref().len()
             < header.encoded_size_including_padding() as usize + Qoi::HEADER_SIZE as usize
         {
-            return Err(QoiError::InputTooSmall);
+            return Err(QoiError::InputSize);
         }
 
         if dest.as_ref().len() < header.raw_image_size(channels) {
