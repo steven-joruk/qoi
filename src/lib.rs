@@ -1,8 +1,4 @@
-use std::{
-    error::Error,
-    fmt::Display,
-    io::{Cursor, Seek, SeekFrom, Write},
-};
+use std::{error::Error, fmt::Display};
 
 #[derive(Debug)]
 pub enum QoiError {
@@ -137,7 +133,7 @@ impl QoiHeader {
         }
     }
 
-    fn to_header(&self, encoded_size: u32) -> [u8; Qoi::HEADER_SIZE] {
+    fn to_array(&self, encoded_size: u32) -> [u8; Qoi::HEADER_SIZE] {
         let mut dest = [0u8; Qoi::HEADER_SIZE];
 
         dest[0..4].copy_from_slice(b"qoif");
@@ -240,11 +236,10 @@ where
         channels: Channels,
         mut dest: impl AsMut<[u8]>,
     ) -> Result<usize, QoiError> {
-        let mut cursor = Cursor::new(dest.as_mut());
+        let dest = dest.as_mut();
 
-        // This will be written later once the encoded size is known.
-        cursor.seek(SeekFrom::Start(Qoi::HEADER_SIZE as u64))?;
-
+        // The header will be written later once the encoded size is known.
+        let mut dest_pos = Qoi::HEADER_SIZE as usize;
         let src = self.as_ref();
         let mut cache = [Pixel::default(); 64];
         let mut previous_pixel = Pixel::default();
@@ -254,14 +249,14 @@ where
             return Err(QoiError::OutputTooSmall);
         }
 
-        for pos in (0..src.len()).step_by(channels.len() as usize) {
+        for src_pos in (0..src.len()).step_by(channels.len() as usize) {
             let a = if channels.len() == 4 {
-                src[pos + 3]
+                src[src_pos + 3]
             } else {
                 255
             };
 
-            let pixel = Pixel::new(src[pos], src[pos + 1], src[pos + 2], a);
+            let pixel = Pixel::new(src[src_pos], src[src_pos + 1], src[src_pos + 2], a);
 
             if pixel == previous_pixel {
                 run += 1;
@@ -270,16 +265,19 @@ where
             if run > 0
                 && (run == 0x2020
                     || pixel != previous_pixel
-                    || pos == src.len() - channels.len() as usize)
+                    || src_pos == src.len() - channels.len() as usize)
             {
                 if run < 33 {
                     run -= 1;
-                    cursor.write_all(&[Qoi::RUN_8 | (run as u8)]).unwrap();
+                    dest[dest_pos] = Qoi::RUN_8 | (run as u8);
+                    dest_pos += 1;
                 } else {
                     run -= 33;
-                    cursor
-                        .write_all(&[Qoi::RUN_16 | ((run >> 8u16) as u8), run as u8])
-                        .unwrap();
+                    dest[dest_pos] = Qoi::RUN_16 | ((run >> 8u16) as u8);
+                    dest_pos += 1;
+
+                    dest[dest_pos] = run as u8;
+                    dest_pos += 1;
                 }
 
                 run = 0;
@@ -289,9 +287,8 @@ where
                 let cache_index = pixel.cache_index();
 
                 if pixel == cache[cache_index] {
-                    cursor
-                        .write_all(&[Qoi::INDEX | (cache_index as u8)])
-                        .unwrap();
+                    dest[dest_pos] = Qoi::INDEX | (cache_index as u8);
+                    dest_pos += 1;
                 } else {
                     cache[cache_index] = pixel;
 
@@ -300,66 +297,79 @@ where
                     let db = pixel.b as i16 - previous_pixel.b as i16;
                     let da = pixel.a as i16 - previous_pixel.a as i16;
 
-                    if da == 0
-                        && dr.is_between(-1, 2)
-                        && dg.is_between(-1, 2)
-                        && db.is_between(-1, 2)
-                    {
-                        cursor
-                            .write_all(&[(Qoi::DIFF_8
-                                | ((dr + 1) << 4) as u8
-                                | ((dg + 1) << 2) as u8
-                                | (db + 1) as u8)])
-                            .unwrap();
-                    } else if da == 0
-                        && dr.is_between(-15, 16)
-                        && dg.is_between(-7, 8)
-                        && db.is_between(-7, 8)
-                    {
-                        cursor
-                            .write_all(&[
-                                Qoi::DIFF_16 | (dr + 15) as u8,
-                                ((dg + 7) << 4) as u8 | (db + 7) as u8,
-                            ])
-                            .unwrap();
-                    } else if dr.is_between(-15, 16)
+                    if dr.is_between(-15, 16)
                         && dg.is_between(-15, 16)
                         && db.is_between(-15, 16)
                         && da.is_between(-15, 16)
                     {
-                        cursor
-                            .write_all(&[
-                                Qoi::DIFF_24 | ((dr + 15) >> 1) as u8,
-                                ((dr + 15) << 7) as u8
-                                    | ((dg + 15) << 2) as u8
-                                    | ((db + 15) >> 3) as u8,
-                                ((db + 15) << 5) as u8 | (da + 15) as u8,
-                            ])
-                            .unwrap();
-                    } else {
-                        let command = Qoi::COLOR
-                            | if dr != 0 { 8 } else { 0 }
-                            | if dg != 0 { 4 } else { 0 }
-                            | if db != 0 { 2 } else { 0 }
-                            | if da != 0 { 1 } else { 0 };
+                        if da == 0
+                            && dr.is_between(-1, 2)
+                            && dg.is_between(-1, 2)
+                            && db.is_between(-1, 2)
+                        {
+                            dest[dest_pos] = Qoi::DIFF_8
+                                | ((dr + 1) << 4) as u8
+                                | ((dg + 1) << 2) as u8
+                                | (db + 1) as u8;
+                            dest_pos += 1;
+                        } else if da == 0
+                            && dr.is_between(-15, 16)
+                            && dg.is_between(-7, 8)
+                            && db.is_between(-7, 8)
+                        {
+                            dest[dest_pos] = Qoi::DIFF_16 | (dr + 15) as u8;
+                            dest_pos += 1;
 
-                        cursor.write_all(&[command]).unwrap();
+                            dest[dest_pos] = ((dg + 7) << 4) as u8 | (db + 7) as u8;
+                            dest_pos += 1;
+                        } else {
+                            dest[dest_pos] = Qoi::DIFF_24 | ((dr + 15) >> 1) as u8;
+                            dest_pos += 1;
+
+                            dest[dest_pos] = ((dr + 15) << 7) as u8
+                                | ((dg + 15) << 2) as u8
+                                | ((db + 15) >> 3) as u8;
+                            dest_pos += 1;
+
+                            dest[dest_pos] = ((db + 15) << 5) as u8 | (da + 15) as u8;
+                            dest_pos += 1;
+                        }
+                    } else {
+                        let mut command = Qoi::COLOR;
+                        let mut components_written = 0;
+
+                        // The command is written last to avoid extra branches.
+                        dest_pos += 1;
 
                         if dr != 0 {
-                            cursor.write_all(&[pixel.r]).unwrap();
+                            command |= 8;
+                            components_written += 1;
+                            dest[dest_pos] = pixel.r;
+                            dest_pos += 1;
                         }
 
                         if dg != 0 {
-                            cursor.write_all(&[pixel.g]).unwrap();
+                            command |= 4;
+                            components_written += 1;
+                            dest[dest_pos] = pixel.g;
+                            dest_pos += 1;
                         }
 
                         if db != 0 {
-                            cursor.write_all(&[pixel.b]).unwrap();
+                            command |= 2;
+                            components_written += 1;
+                            dest[dest_pos] = pixel.b;
+                            dest_pos += 1;
                         }
 
                         if da != 0 {
-                            cursor.write_all(&[pixel.a]).unwrap();
+                            command |= 1;
+                            components_written += 1;
+                            dest[dest_pos] = pixel.a;
+                            dest_pos += 1;
                         }
+
+                        dest[dest_pos - components_written - 1] = command;
                     }
                 }
             }
@@ -367,15 +377,16 @@ where
             previous_pixel = pixel;
         }
 
-        cursor.write_all(&[0u8; Qoi::PADDING as usize])?;
+        dest[dest_pos..dest_pos + Qoi::PADDING as usize]
+            .copy_from_slice(&[0u8; Qoi::PADDING as usize]);
+        dest_pos += Qoi::PADDING as usize;
 
-        let config = QoiHeader::new(width, height);
+        let header = QoiHeader::new(width, height);
 
-        let encoded_size = cursor.position() as u32 - Qoi::HEADER_SIZE as u32;
-        cursor.seek(SeekFrom::Start(0))?;
-        cursor.write_all(&config.to_header(encoded_size)).unwrap();
+        dest[0..Qoi::HEADER_SIZE]
+            .copy_from_slice(&header.to_array(dest_pos as u32 - Qoi::HEADER_SIZE as u32));
 
-        Ok(encoded_size as usize + Qoi::HEADER_SIZE as usize)
+        Ok(dest_pos)
     }
 
     fn qoi_encode_to_vec(
