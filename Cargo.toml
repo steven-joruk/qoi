@@ -9,6 +9,7 @@ description = "An implementation of Phoboslab's QOI image format."
 
 [dev-dependencies]
 criterion = "0.3"
+walkdir = "2"
 
 [[bench]]
 name = "benches"
