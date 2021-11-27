@@ -263,8 +263,8 @@ where
             }
 
             if run > 0
-                && (run == 0x2020
-                    || pixel != previous_pixel
+                && (pixel != previous_pixel
+                    || run == 0x2020
                     || src_pos == src.len() - channels.len() as usize)
             {
                 if run < 33 {
