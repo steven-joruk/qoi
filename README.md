@@ -12,9 +12,9 @@ Apache-2.0 OR MIT.
 
 ## To do
 
-- Verify it against all test images from here https://phoboslab.org/files/qoibench/
+- Automatically create .raw and .qoi test cases using the C imeplementation to
+  test against: https://phoboslab.org/files/qoibench/
+- Include benchmarks for the C implementation
 - Make integer casts more strict to prevent overflows
 - More tests
 - Fuzzing
-- Maybe make it generic over `Write+Seek` and the number of channels.
-- Examples

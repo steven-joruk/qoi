@@ -1,9 +1,5 @@
-use qoi::{Channels, QoiDecode, QoiEncode, QoiError};
-
-const THREE_QOI: &[u8] = include_bytes!("../images/three.qoi");
-const THREE_RAW: &[u8] = include_bytes!("../images/three.raw");
-const FOUR_QOI: &[u8] = include_bytes!("../images/four.qoi");
-const FOUR_RAW: &[u8] = include_bytes!("../images/four.raw");
+use qoi::{Channels, QoiDecode, QoiEncode, QoiError, QoiHeader};
+use std::{ffi::OsStr, fs::ReadDir, path::PathBuf};
 
 fn compare_bytes(l: &[u8], r: &[u8]) {
     for i in 0..l.len() {
@@ -14,34 +10,72 @@ fn compare_bytes(l: &[u8], r: &[u8]) {
     assert_eq!(l.len(), r.len());
 }
 
-#[test]
-fn decode_three_channels() {
-    let decoded = THREE_QOI.qoi_decode_to_vec(Channels::Three).unwrap();
-    compare_bytes(THREE_RAW, decoded.as_slice());
+struct TestCase {
+    path: PathBuf,
+    encoded: Vec<u8>,
+    header: QoiHeader,
+}
+struct TestCaseIterator {
+    read_dir: ReadDir,
+}
+
+impl TestCaseIterator {
+    fn new() -> Self {
+        Self {
+            read_dir: std::fs::read_dir("images").unwrap(),
+        }
+    }
+}
+
+impl Iterator for TestCaseIterator {
+    type Item = TestCase;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for entry in self.read_dir.next() {
+            let entry = entry.unwrap();
+            if entry.path().extension() == Some(OsStr::new(".qoi")) {
+                let encoded = std::fs::read(entry.path()).unwrap();
+                let header = encoded.load_qoi_header().unwrap();
+                return Some(TestCase {
+                    path: entry.path(),
+                    encoded,
+                    header,
+                });
+            }
+        }
+
+        None
+    }
 }
 
 #[test]
-fn decode_four_channels() {
-    let decoded = FOUR_QOI.qoi_decode_to_vec(Channels::Four).unwrap();
-    compare_bytes(FOUR_RAW, decoded.as_slice());
+fn round_trip_three_channels() {
+    for case in TestCaseIterator::new() {
+        println!("Testing {}", case.path.display());
+
+        let decoded = case.encoded.qoi_decode_to_vec(Channels::Three).unwrap();
+
+        let encoded = decoded
+            .qoi_encode_to_vec(case.header.width(), case.header.height(), Channels::Three)
+            .unwrap();
+
+        compare_bytes(&encoded, &case.encoded);
+    }
 }
 
 #[test]
-fn encode_three_channels() {
-    let header = THREE_QOI.load_qoi_header().unwrap();
-    let encoded = THREE_RAW
-        .qoi_encode_to_vec(header.width(), header.height(), Channels::Three)
-        .unwrap();
-    compare_bytes(THREE_QOI, &encoded);
-}
+fn round_trip_four_channels() {
+    for case in TestCaseIterator::new() {
+        println!("Testing {}", case.path.display());
 
-#[test]
-fn encode_four_channels() {
-    let header = FOUR_QOI.load_qoi_header().unwrap();
-    let encoded = FOUR_RAW
-        .qoi_encode_to_vec(header.width(), header.height(), Channels::Four)
-        .unwrap();
-    compare_bytes(FOUR_QOI, &encoded);
+        let decoded = case.encoded.qoi_decode_to_vec(Channels::Four).unwrap();
+
+        let encoded = decoded
+            .qoi_encode_to_vec(case.header.width(), case.header.height(), Channels::Four)
+            .unwrap();
+
+        compare_bytes(&encoded, &case.encoded);
+    }
 }
 
 #[test]
