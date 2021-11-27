@@ -2,8 +2,8 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use qoi::{QoiDecode, QoiEncode};
 
 pub fn three_channels(c: &mut Criterion) {
-    let raw = include_bytes!("../tests/three.raw");
-    let encoded = include_bytes!("../tests/three.qoi");
+    let raw = include_bytes!("../images/three.raw");
+    let encoded = include_bytes!("../images/three.qoi");
     let header = encoded.load_qoi_header().unwrap();
 
     c.bench_function("decode 3 channels", |b| {
@@ -19,8 +19,8 @@ pub fn three_channels(c: &mut Criterion) {
 }
 
 pub fn four_channels(c: &mut Criterion) {
-    let raw = include_bytes!("../tests/four.raw");
-    let encoded = include_bytes!("../tests/four.qoi");
+    let raw = include_bytes!("../images/four.raw");
+    let encoded = include_bytes!("../images/four.qoi");
     let header = encoded.load_qoi_header().unwrap();
 
     c.bench_function("decode 4 channels", |b| {

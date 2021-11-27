@@ -1,5 +1,10 @@
 use qoi::{Channels, QoiDecode, QoiEncode, QoiError};
 
+const THREE_QOI: &[u8] = include_bytes!("../images/three.qoi");
+const THREE_RAW: &[u8] = include_bytes!("../images/three.raw");
+const FOUR_QOI: &[u8] = include_bytes!("../images/four.qoi");
+const FOUR_RAW: &[u8] = include_bytes!("../images/four.raw");
+
 fn compare_bytes(l: &[u8], r: &[u8]) {
     for i in 0..l.len() {
         if l[i] != r[i] {
@@ -11,41 +16,32 @@ fn compare_bytes(l: &[u8], r: &[u8]) {
 
 #[test]
 fn decode_three_channels() {
-    let encoded = include_bytes!("../tests/three.qoi");
-    let expected = include_bytes!("../tests/three.raw");
-    let decoded = encoded.qoi_decode_to_vec(Channels::Three).unwrap();
-    compare_bytes(expected, decoded.as_slice());
+    let decoded = THREE_QOI.qoi_decode_to_vec(Channels::Three).unwrap();
+    compare_bytes(THREE_RAW, decoded.as_slice());
 }
 
 #[test]
 fn decode_four_channels() {
-    let encoded = include_bytes!("../tests/four.qoi");
-    let expected = include_bytes!("../tests/four.raw");
-    let decoded = encoded.qoi_decode_to_vec(Channels::Four).unwrap();
-    compare_bytes(expected, decoded.as_slice());
+    let decoded = FOUR_QOI.qoi_decode_to_vec(Channels::Four).unwrap();
+    compare_bytes(FOUR_RAW, decoded.as_slice());
 }
 
 #[test]
 fn encode_three_channels() {
-    let expected = include_bytes!("../tests/three.qoi");
-    let header = expected.load_qoi_header().unwrap();
-
-    let raw = include_bytes!("../tests/three.raw");
-    let encoded = raw
+    let header = THREE_QOI.load_qoi_header().unwrap();
+    let encoded = THREE_RAW
         .qoi_encode_to_vec(header.width(), header.height(), Channels::Three)
         .unwrap();
-    compare_bytes(expected, &encoded);
+    compare_bytes(THREE_QOI, &encoded);
 }
 
 #[test]
 fn encode_four_channels() {
-    let expected = include_bytes!("../tests/four.qoi");
-    let header = expected.load_qoi_header().unwrap();
-    let raw = include_bytes!("../tests/four.raw");
-    let encoded = raw
+    let header = FOUR_QOI.load_qoi_header().unwrap();
+    let encoded = FOUR_RAW
         .qoi_encode_to_vec(header.width(), header.height(), Channels::Four)
         .unwrap();
-    compare_bytes(expected, &encoded);
+    compare_bytes(FOUR_QOI, &encoded);
 }
 
 #[test]
