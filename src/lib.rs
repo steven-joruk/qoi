@@ -40,6 +40,7 @@ pub enum Channels {
 }
 
 impl Channels {
+    #[inline]
     fn len(&self) -> u8 {
         match self {
             Self::Three => 3,
@@ -57,6 +58,7 @@ struct Pixel {
 }
 
 impl Default for Pixel {
+    #[inline]
     fn default() -> Self {
         Self {
             r: 0,
@@ -68,6 +70,7 @@ impl Default for Pixel {
 }
 
 impl Pixel {
+    #[inline]
     fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
