@@ -372,9 +372,9 @@ where
                         dest[dest_pos - components_written - 1] = command;
                     }
                 }
-            }
 
-            previous_pixel = pixel;
+                previous_pixel = pixel;
+            }
         }
 
         dest[dest_pos..dest_pos + Qoi::PADDING as usize]
