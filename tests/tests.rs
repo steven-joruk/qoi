@@ -77,9 +77,7 @@ fn encode() {
 #[test]
 fn header_magic() {
     assert!(matches!(
-        b"boif1234112341234123423412341234"
-            .qoi_decode_to_vec(None)
-            .unwrap_err(),
+        b"boif1234123412".qoi_decode_to_vec(None).unwrap_err(),
         QoiError::IncorrectHeaderMagic
     ));
 }
@@ -89,6 +87,6 @@ fn buffer_size_errors() {
     let mut buffer = Vec::new();
     buffer.resize(1024, 0);
 
-    let error = b"qoif".qoi_decode(None, &mut buffer).unwrap_err();
+    let error = b"qoif123412341".qoi_decode(None, &mut buffer).unwrap_err();
     assert!(matches!(error, QoiError::InputSmallerThanHeader));
 }

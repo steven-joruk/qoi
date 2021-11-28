@@ -8,6 +8,7 @@ pub enum QoiError {
     InputSize,
     OutputTooSmall,
     InvalidHeader,
+    TooBig,
     Io(std::io::Error),
 }
 
@@ -24,6 +25,7 @@ impl Display for QoiError {
             Self::InputSize => f.write_str("The input size is invalid"),
             Self::OutputTooSmall => f.write_str("The output buffer is too small"),
             Self::InvalidHeader => f.write_str("The header is invalid"),
+            Self::TooBig => f.write_str("The image size is too big"),
             Self::Io(inner) => {
                 f.write_fmt(format_args!("An I/O error occurred: {}", inner.to_string()))
             }
@@ -123,6 +125,7 @@ pub struct Qoi;
 impl Qoi {
     const HEADER_SIZE: usize = 14;
     const PADDING: u8 = 4;
+    const MAX_SIZE: usize = 1024 * 1024 * 1024;
 
     const INDEX: u8 = 0;
 
@@ -178,7 +181,10 @@ impl QoiHeader {
 
     /// The size of the image in its raw, uncompressed format.
     pub fn raw_image_size(&self, channels: Channels) -> usize {
-        self.width() as usize * self.height() as usize * channels.len() as usize
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let channels = channels.len() as usize;
+        width.saturating_mul(height).saturating_mul(channels)
     }
 
     pub fn channels(&self) -> Channels {
@@ -264,28 +270,21 @@ where
         if src.len() < raw_image_size {
             return Err(QoiError::InputSize);
         }
+        let src = &src[0..raw_image_size];
 
         dest[0..Qoi::HEADER_SIZE].copy_from_slice(&header.to_array());
         let mut dest_pos = Qoi::HEADER_SIZE;
+        let last_chunk_index = src.len() / channels.len() as usize - 1;
 
-        for src_pos in (0..raw_image_size).step_by(channels.len() as usize) {
-            let a = if channels.len() == 4 {
-                src[src_pos + 3]
-            } else {
-                255
-            };
-
-            let pixel = Pixel::new(src[src_pos], src[src_pos + 1], src[src_pos + 2], a);
+        for (index, chunk) in src.chunks_exact(channels.len() as usize).enumerate() {
+            let a = if channels.len() == 4 { chunk[3] } else { 255 };
+            let pixel = Pixel::new(chunk[0], chunk[1], chunk[2], a);
 
             if pixel == previous_pixel {
                 run += 1;
             }
 
-            if run > 0
-                && (pixel != previous_pixel
-                    || run == 0x2020
-                    || src_pos == (raw_image_size - channels.len() as usize))
-            {
+            if run > 0 && (pixel != previous_pixel || run == 0x2020 || index == last_chunk_index) {
                 if run < 33 {
                     run -= 1;
                     dest[dest_pos] = Qoi::RUN_8 | (run as u8);
@@ -338,11 +337,9 @@ where
                     }
 
                     #[inline]
-                    fn diff_16(dr: i16, dg: i16, db: i16) -> [u8; 2] {
-                        let mut dest = [0u8; 2];
+                    fn diff_16(dr: i16, dg: i16, db: i16, dest: &mut [u8]) {
                         dest[0] = Qoi::DIFF_16 | (dr + 16) as u8;
                         dest[1] = ((dg + 8) << 4) as u8 | (db + 8) as u8;
-                        dest
                     }
 
                     #[inline]
@@ -354,9 +351,7 @@ where
                     }
 
                     #[inline]
-                    fn diff_24(dr: i16, dg: i16, db: i16, da: i16) -> [u8; 3] {
-                        let mut dest = [0u8; 3];
-
+                    fn diff_24(dr: i16, dg: i16, db: i16, da: i16, dest: &mut [u8]) {
                         dest[0] = Qoi::DIFF_24 | ((dr + 16) >> 1) as u8;
 
                         dest[1] = ((dr + 16) << 7) as u8
@@ -364,8 +359,6 @@ where
                             | ((db + 16) >> 3) as u8;
 
                         dest[2] = ((db + 16) << 5) as u8 | (da + 16) as u8;
-
-                        dest
                     }
 
                     if can_diff_24(dr, dg, db, da) {
@@ -373,10 +366,10 @@ where
                             dest[dest_pos] = diff_8(dr, dg, db);
                             dest_pos += 1;
                         } else if can_diff_16(dr, dg, db, da) {
-                            dest[dest_pos..dest_pos + 2].copy_from_slice(&diff_16(dr, dg, db));
+                            diff_16(dr, dg, db, &mut dest[dest_pos..]);
                             dest_pos += 2;
                         } else {
-                            dest[dest_pos..dest_pos + 3].copy_from_slice(&diff_24(dr, dg, db, da));
+                            diff_24(dr, dg, db, da, &mut dest[dest_pos..]);
                             dest_pos += 3;
                         }
                     } else {
@@ -436,13 +429,16 @@ where
         channels: Channels,
         colour_space: u8,
     ) -> Result<Vec<u8>, QoiError> {
+        let size = width as usize * height as usize * channels.len() as usize
+            + Qoi::HEADER_SIZE
+            + Qoi::PADDING as usize;
+
+        if size > Qoi::MAX_SIZE {
+            return Err(QoiError::TooBig);
+        }
+
         let mut dest = Vec::new();
-        dest.resize(
-            width as usize * height as usize * channels.len() as usize
-                + Qoi::HEADER_SIZE
-                + Qoi::PADDING as usize,
-            0,
-        );
+        dest.resize(size, 0);
         let size = self.qoi_encode(width, height, channels, colour_space, dest.as_mut_slice())?;
         dest.resize(size, 0);
         Ok(dest)
@@ -476,6 +472,10 @@ where
             return Err(QoiError::OutputTooSmall);
         }
 
+        if self.as_ref().len() < Qoi::HEADER_SIZE + Qoi::PADDING as usize {
+            return Err(QoiError::InputSize);
+        }
+
         let mut cache = [Pixel::default(); 64];
         let mut run = 0u16;
         let padding_pos = self.as_ref().len() - Qoi::PADDING as usize;
@@ -483,11 +483,20 @@ where
         let mut pos = 0;
         let src = &self.as_ref()[Qoi::HEADER_SIZE..];
 
+        #[inline]
+        fn get(buf: &[u8], pos: usize) -> Result<u8, QoiError> {
+            Ok(*buf.get(pos).ok_or(QoiError::InputSize)?)
+        }
+
         for chunk in dest.chunks_exact_mut(channels.len() as usize) {
+            if pos >= src.len() {
+                return Err(QoiError::InputSize);
+            }
+
             if run > 0 {
                 run -= 1;
             } else if pos < padding_pos as usize {
-                let b1 = src[pos];
+                let b1 = get(src, pos)?;
                 pos += 1;
 
                 if b1 & Qoi::MASK_2 == Qoi::INDEX {
@@ -495,7 +504,7 @@ where
                 } else if b1 & Qoi::MASK_3 == Qoi::RUN_8 {
                     run = (b1 & 0x1f) as u16;
                 } else if b1 & Qoi::MASK_3 == Qoi::RUN_16 {
-                    let b2 = src[pos];
+                    let b2 = get(src, pos)?;
                     pos += 1;
                     run = ((((b1 & 0x1f) as u16) << 8) | b2 as u16) + 32;
                 } else if (b1 & Qoi::MASK_2) == Qoi::DIFF_8 {
@@ -503,15 +512,15 @@ where
                     pixel.modify_g(((b1 >> 2) & 0x03) as i8 - 2);
                     pixel.modify_b((b1 & 0x03) as i8 - 2);
                 } else if (b1 & Qoi::MASK_3) == Qoi::DIFF_16 {
-                    let b2 = src[pos];
+                    let b2 = get(src, pos)?;
                     pos += 1;
                     pixel.modify_r((b1 & 0x1f) as i8 - 16);
                     pixel.modify_g((b2 >> 4) as i8 - 8);
                     pixel.modify_b((b2 & 0x0f) as i8 - 8);
                 } else if (b1 & Qoi::MASK_4) == Qoi::DIFF_24 {
-                    let b2 = src[pos];
+                    let b2 = get(src, pos)?;
                     pos += 1;
-                    let b3 = src[pos];
+                    let b3 = get(src, pos)?;
                     pos += 1;
 
                     pixel.modify_r((((b1 & 0x0f) << 1) | (b2 >> 7)) as i8 - 16);
@@ -520,22 +529,22 @@ where
                     pixel.modify_a((b3 & 0x1f) as i8 - 16);
                 } else if (b1 & Qoi::MASK_4) == Qoi::COLOR {
                     if b1 & 8 > 0 {
-                        pixel.r = src[pos];
+                        pixel.r = get(src, pos)?;
                         pos += 1;
                     }
 
                     if b1 & 4 > 0 {
-                        pixel.g = src[pos];
+                        pixel.g = get(src, pos)?;
                         pos += 1;
                     }
 
                     if b1 & 2 > 0 {
-                        pixel.b = src[pos];
+                        pixel.b = get(src, pos)?;
                         pos += 1;
                     }
 
                     if b1 & 1 > 0 {
-                        pixel.a = src[pos];
+                        pixel.a = get(src, pos)?;
                         pos += 1;
                     }
                 }
@@ -559,6 +568,11 @@ where
         let mut dest = Vec::new();
         let header = QoiHeader::new_from_slice(self.as_ref())?;
         let channels = channels.unwrap_or(header.channels);
+
+        if header.raw_image_size(channels) > Qoi::MAX_SIZE {
+            return Err(QoiError::TooBig);
+        }
+
         dest.resize(header.raw_image_size(channels), 0);
         self.qoi_decode(Some(channels), &mut dest)?;
         Ok(dest)
