@@ -13,6 +13,24 @@ where
 impl IsBetween for i16 {}
 
 #[inline]
+fn write_run(dest: &mut [u8], dest_pos: &mut usize, run: &mut u16) {
+    if *run < 33 {
+        *run -= 1;
+        dest[0] = Qoi::RUN_8 | (*run as u8);
+        *dest_pos += 1;
+    } else {
+        *run -= 33;
+        dest[0] = Qoi::RUN_16 | ((*run >> 8u16) as u8);
+        *dest_pos += 1;
+
+        dest[1] = *run as u8;
+        *dest_pos += 1;
+    }
+
+    *run = 0;
+}
+
+#[inline]
 fn can_diff_8(dr: i16, dg: i16, db: i16, da: i16) -> bool {
     da == 0 && dr.is_between(-2, 1) && dg.is_between(-2, 1) && db.is_between(-2, 1)
 }
@@ -103,26 +121,15 @@ where
 
             if pixel == previous_pixel {
                 run += 1;
-            }
 
-            if run > 0 && (pixel != previous_pixel || run == 0x2020 || index == last_chunk_index) {
-                if run < 33 {
-                    run -= 1;
-                    dest[dest_pos] = Qoi::RUN_8 | (run as u8);
-                    dest_pos += 1;
-                } else {
-                    run -= 33;
-                    dest[dest_pos] = Qoi::RUN_16 | ((run >> 8u16) as u8);
-                    dest_pos += 1;
-
-                    dest[dest_pos] = run as u8;
-                    dest_pos += 1;
+                if run == 0x2020 || index == last_chunk_index {
+                    write_run(&mut dest[dest_pos..], &mut dest_pos, &mut run);
+                }
+            } else {
+                if run > 0 {
+                    write_run(&mut dest[dest_pos..], &mut dest_pos, &mut run);
                 }
 
-                run = 0;
-            }
-
-            if pixel != previous_pixel {
                 let cache_index = pixel.cache_index();
 
                 if pixel == cache[cache_index] {
