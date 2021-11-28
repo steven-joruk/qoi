@@ -1,5 +1,10 @@
 use crate::{Channels, Pixel, Qoi, QoiError, QoiHeader};
 
+#[inline]
+fn get(buf: &[u8], pos: usize) -> Result<u8, QoiError> {
+    Ok(*buf.get(pos).ok_or(QoiError::InputSize)?)
+}
+
 pub trait QoiDecode {
     fn qoi_decode(
         &self,
@@ -27,21 +32,16 @@ where
             return Err(QoiError::OutputTooSmall);
         }
 
-        if self.as_ref().len() < Qoi::HEADER_SIZE + Qoi::PADDING as usize {
+        if self.as_ref().len() < Qoi::HEADER_SIZE + Qoi::PADDING_SIZE as usize {
             return Err(QoiError::InputSize);
         }
 
         let mut cache = [Pixel::default(); 64];
         let mut run = 0u16;
-        let padding_pos = self.as_ref().len() - Qoi::PADDING as usize;
+        let padding_pos = self.as_ref().len() - Qoi::PADDING_SIZE as usize;
         let mut pixel = Pixel::new(0, 0, 0, 255);
         let mut pos = 0;
         let src = &self.as_ref()[Qoi::HEADER_SIZE..];
-
-        #[inline]
-        fn get(buf: &[u8], pos: usize) -> Result<u8, QoiError> {
-            Ok(*buf.get(pos).ok_or(QoiError::InputSize)?)
-        }
 
         for chunk in dest.chunks_exact_mut(channels.len() as usize) {
             if pos >= src.len() {

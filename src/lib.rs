@@ -130,7 +130,7 @@ pub struct Qoi;
 
 impl Qoi {
     const HEADER_SIZE: usize = 14;
-    const PADDING: u8 = 4;
+    const PADDING_SIZE: u8 = 4;
     const MAX_SIZE: usize = 1024 * 1024 * 1024;
 
     const INDEX: u8 = 0;
@@ -220,18 +220,6 @@ impl QoiHeader {
         Ok(header)
     }
 }
-
-trait IsBetween: PartialOrd
-where
-    Self: Sized,
-{
-    #[inline]
-    fn is_between(&self, low: Self, high: Self) -> bool {
-        *self >= low && *self <= high
-    }
-}
-
-impl IsBetween for i16 {}
 
 #[cfg(test)]
 mod test {

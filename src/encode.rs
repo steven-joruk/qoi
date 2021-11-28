@@ -1,4 +1,52 @@
-use crate::{Channels, IsBetween, Pixel, Qoi, QoiError, QoiHeader};
+use crate::{Channels, Pixel, Qoi, QoiError, QoiHeader};
+
+trait IsBetween: PartialOrd
+where
+    Self: Sized,
+{
+    #[inline]
+    fn is_between(&self, low: Self, high: Self) -> bool {
+        *self >= low && *self <= high
+    }
+}
+
+impl IsBetween for i16 {}
+
+#[inline]
+fn can_diff_8(dr: i16, dg: i16, db: i16, da: i16) -> bool {
+    da == 0 && dr.is_between(-2, 1) && dg.is_between(-2, 1) && db.is_between(-2, 1)
+}
+
+#[inline]
+fn diff_8(dr: i16, dg: i16, db: i16) -> u8 {
+    Qoi::DIFF_8 | ((dr + 2) << 4) as u8 | ((dg + 2) << 2) as u8 | (db + 2) as u8
+}
+
+#[inline]
+fn can_diff_16(dr: i16, dg: i16, db: i16, da: i16) -> bool {
+    da == 0 && dr.is_between(-16, 15) && dg.is_between(-8, 7) && db.is_between(-8, 7)
+}
+
+#[inline]
+fn diff_16(dr: i16, dg: i16, db: i16, dest: &mut [u8]) {
+    dest[0] = Qoi::DIFF_16 | (dr + 16) as u8;
+    dest[1] = ((dg + 8) << 4) as u8 | (db + 8) as u8;
+}
+
+#[inline]
+fn can_diff_24(dr: i16, dg: i16, db: i16, da: i16) -> bool {
+    dr.is_between(-16, 15)
+        && dg.is_between(-16, 15)
+        && db.is_between(-16, 15)
+        && da.is_between(-16, 15)
+}
+
+#[inline]
+fn diff_24(dr: i16, dg: i16, db: i16, da: i16, dest: &mut [u8]) {
+    dest[0] = Qoi::DIFF_24 | ((dr + 16) >> 1) as u8;
+    dest[1] = ((dr + 16) << 7) as u8 | ((dg + 16) << 2) as u8 | ((db + 16) >> 3) as u8;
+    dest[2] = ((db + 16) << 5) as u8 | (da + 16) as u8;
+}
 
 pub trait QoiEncode {
     fn qoi_encode(
@@ -88,52 +136,6 @@ where
                     let db = pixel.b as i16 - previous_pixel.b as i16;
                     let da = pixel.a as i16 - previous_pixel.a as i16;
 
-                    #[inline]
-                    fn can_diff_8(dr: i16, dg: i16, db: i16, da: i16) -> bool {
-                        da == 0
-                            && dr.is_between(-2, 1)
-                            && dg.is_between(-2, 1)
-                            && db.is_between(-2, 1)
-                    }
-
-                    #[inline]
-                    fn diff_8(dr: i16, dg: i16, db: i16) -> u8 {
-                        Qoi::DIFF_8 | ((dr + 2) << 4) as u8 | ((dg + 2) << 2) as u8 | (db + 2) as u8
-                    }
-
-                    #[inline]
-                    fn can_diff_16(dr: i16, dg: i16, db: i16, da: i16) -> bool {
-                        da == 0
-                            && dr.is_between(-16, 15)
-                            && dg.is_between(-8, 7)
-                            && db.is_between(-8, 7)
-                    }
-
-                    #[inline]
-                    fn diff_16(dr: i16, dg: i16, db: i16, dest: &mut [u8]) {
-                        dest[0] = Qoi::DIFF_16 | (dr + 16) as u8;
-                        dest[1] = ((dg + 8) << 4) as u8 | (db + 8) as u8;
-                    }
-
-                    #[inline]
-                    fn can_diff_24(dr: i16, dg: i16, db: i16, da: i16) -> bool {
-                        dr.is_between(-16, 15)
-                            && dg.is_between(-16, 15)
-                            && db.is_between(-16, 15)
-                            && da.is_between(-16, 15)
-                    }
-
-                    #[inline]
-                    fn diff_24(dr: i16, dg: i16, db: i16, da: i16, dest: &mut [u8]) {
-                        dest[0] = Qoi::DIFF_24 | ((dr + 16) >> 1) as u8;
-
-                        dest[1] = ((dr + 16) << 7) as u8
-                            | ((dg + 16) << 2) as u8
-                            | ((db + 16) >> 3) as u8;
-
-                        dest[2] = ((db + 16) << 5) as u8 | (da + 16) as u8;
-                    }
-
                     if can_diff_24(dr, dg, db, da) {
                         if can_diff_8(dr, dg, db, da) {
                             dest[dest_pos] = diff_8(dr, dg, db);
@@ -188,9 +190,9 @@ where
             }
         }
 
-        dest[dest_pos..dest_pos + Qoi::PADDING as usize]
-            .copy_from_slice(&[0u8; Qoi::PADDING as usize]);
-        dest_pos += Qoi::PADDING as usize;
+        dest[dest_pos..dest_pos + Qoi::PADDING_SIZE as usize]
+            .copy_from_slice(&[0u8; Qoi::PADDING_SIZE as usize]);
+        dest_pos += Qoi::PADDING_SIZE as usize;
 
         Ok(dest_pos)
     }
@@ -206,7 +208,7 @@ where
             .saturating_mul(height as usize)
             .saturating_mul(channels.len() as usize)
             .saturating_add(Qoi::HEADER_SIZE as usize)
-            .saturating_add(Qoi::PADDING as usize);
+            .saturating_add(Qoi::PADDING_SIZE as usize);
 
         if size > Qoi::MAX_SIZE {
             return Err(QoiError::TooBig);
