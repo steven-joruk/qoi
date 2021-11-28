@@ -267,7 +267,7 @@ where
         let header = QoiHeader::new(width, height, channels, colour_space);
 
         let raw_image_size = header.raw_image_size(channels);
-        if src.len() < raw_image_size {
+        if raw_image_size < (channels.len() as usize) || src.len() < raw_image_size {
             return Err(QoiError::InputSize);
         }
         let src = &src[0..raw_image_size];
@@ -429,9 +429,11 @@ where
         channels: Channels,
         colour_space: u8,
     ) -> Result<Vec<u8>, QoiError> {
-        let size = width as usize * height as usize * channels.len() as usize
-            + Qoi::HEADER_SIZE
-            + Qoi::PADDING as usize;
+        let size = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(channels.len() as usize)
+            .saturating_add(Qoi::HEADER_SIZE as usize)
+            .saturating_add(Qoi::PADDING as usize);
 
         if size > Qoi::MAX_SIZE {
             return Err(QoiError::TooBig);
