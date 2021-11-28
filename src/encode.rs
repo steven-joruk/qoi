@@ -143,17 +143,15 @@ where
                     let db = pixel.b as i16 - previous_pixel.b as i16;
                     let da = pixel.a as i16 - previous_pixel.a as i16;
 
-                    if can_diff_24(dr, dg, db, da) {
-                        if can_diff_8(dr, dg, db, da) {
-                            dest[dest_pos] = diff_8(dr, dg, db);
-                            dest_pos += 1;
-                        } else if can_diff_16(dr, dg, db, da) {
-                            diff_16(dr, dg, db, &mut dest[dest_pos..]);
-                            dest_pos += 2;
-                        } else {
-                            diff_24(dr, dg, db, da, &mut dest[dest_pos..]);
-                            dest_pos += 3;
-                        }
+                    if can_diff_8(dr, dg, db, da) {
+                        dest[dest_pos] = diff_8(dr, dg, db);
+                        dest_pos += 1;
+                    } else if can_diff_16(dr, dg, db, da) {
+                        diff_16(dr, dg, db, &mut dest[dest_pos..]);
+                        dest_pos += 2;
+                    } else if can_diff_24(dr, dg, db, da) {
+                        diff_24(dr, dg, db, da, &mut dest[dest_pos..]);
+                        dest_pos += 3;
                     } else {
                         let mut command = Qoi::COLOR;
                         let mut components_written = 0;
