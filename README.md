@@ -15,9 +15,7 @@ Apache-2.0 OR MIT.
 - Add tests for decoding using 3 and 4 channels where the source has the opposite
   number of channels.
 - Include benchmarks for the C implementation
-- Make integer casts more strict to prevent overflows
 - More tests
-- Fuzzing
 
 ## Generating test images
 

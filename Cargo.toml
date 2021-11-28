@@ -17,3 +17,6 @@ harness = false
 
 [profile.bench]
 debug = true
+lto = true
+opt-level = 3
+codegen-units = 1
