@@ -44,10 +44,6 @@ where
         let src = &self.as_ref()[Qoi::HEADER_SIZE..];
 
         for chunk in dest.chunks_exact_mut(channels.len() as usize) {
-            if pos >= src.len() {
-                return Err(QoiError::InputSize);
-            }
-
             if run > 0 {
                 run -= 1;
             } else if pos < padding_pos as usize {
