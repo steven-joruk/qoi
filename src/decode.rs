@@ -107,12 +107,12 @@ where
                 cache[pixel.cache_index()] = pixel;
             }
 
-            chunk[0] = pixel.r;
-            chunk[1] = pixel.g;
-            chunk[2] = pixel.b;
+            *chunk.get_mut(0).ok_or(QoiError::OutputTooSmall)? = pixel.r;
+            *chunk.get_mut(1).ok_or(QoiError::OutputTooSmall)? = pixel.g;
+            *chunk.get_mut(2).ok_or(QoiError::OutputTooSmall)? = pixel.b;
 
             if channels.len() == 4 {
-                chunk[3] = pixel.a;
+                *chunk.get_mut(3).ok_or(QoiError::OutputTooSmall)? = pixel.a;
             }
         }
 
