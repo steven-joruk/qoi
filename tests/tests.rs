@@ -11,6 +11,8 @@ fn compare_bytes(actual: &[u8], expected: &[u8]) {
             panic!("Byte {} doesn't match: {} != {}", i, actual[i], expected[i]);
         }
     }
+
+    assert_eq!(actual.len(), expected.len());
 }
 
 struct TestCase {

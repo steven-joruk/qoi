@@ -221,8 +221,11 @@ where
 
         let mut dest = Vec::new();
         dest.resize(size, 0);
-        let size = self.qoi_encode(width, height, channels, colour_space, dest.as_mut_slice())?;
-        dest.resize(size, 0);
+
+        let actual_size =
+            self.qoi_encode(width, height, channels, colour_space, dest.as_mut_slice())?;
+        dest.resize(actual_size, 0);
+
         Ok(dest)
     }
 }
