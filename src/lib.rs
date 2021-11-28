@@ -316,42 +316,68 @@ where
                     let db = pixel.b as i16 - previous_pixel.b as i16;
                     let da = pixel.a as i16 - previous_pixel.a as i16;
 
-                    if dr.is_between(-16, 15)
-                        && dg.is_between(-16, 15)
-                        && db.is_between(-16, 15)
-                        && da.is_between(-16, 15)
-                    {
-                        if da == 0
+                    #[inline]
+                    fn can_diff_8(dr: i16, dg: i16, db: i16, da: i16) -> bool {
+                        da == 0
                             && dr.is_between(-2, 1)
                             && dg.is_between(-2, 1)
                             && db.is_between(-2, 1)
-                        {
-                            dest[dest_pos] = Qoi::DIFF_8
-                                | ((dr + 2) << 4) as u8
-                                | ((dg + 2) << 2) as u8
-                                | (db + 2) as u8;
-                            dest_pos += 1;
-                        } else if da == 0
+                    }
+
+                    #[inline]
+                    fn diff_8(dr: i16, dg: i16, db: i16) -> u8 {
+                        Qoi::DIFF_8 | ((dr + 2) << 4) as u8 | ((dg + 2) << 2) as u8 | (db + 2) as u8
+                    }
+
+                    #[inline]
+                    fn can_diff_16(dr: i16, dg: i16, db: i16, da: i16) -> bool {
+                        da == 0
                             && dr.is_between(-16, 15)
                             && dg.is_between(-8, 7)
                             && db.is_between(-8, 7)
-                        {
-                            dest[dest_pos] = Qoi::DIFF_16 | (dr + 16) as u8;
-                            dest_pos += 1;
+                    }
 
-                            dest[dest_pos] = ((dg + 8) << 4) as u8 | (db + 8) as u8;
+                    #[inline]
+                    fn diff_16(dr: i16, dg: i16, db: i16) -> [u8; 2] {
+                        let mut dest = [0u8; 2];
+                        dest[0] = Qoi::DIFF_16 | (dr + 16) as u8;
+                        dest[1] = ((dg + 8) << 4) as u8 | (db + 8) as u8;
+                        dest
+                    }
+
+                    #[inline]
+                    fn can_diff_24(dr: i16, dg: i16, db: i16, da: i16) -> bool {
+                        dr.is_between(-16, 15)
+                            && dg.is_between(-16, 15)
+                            && db.is_between(-16, 15)
+                            && da.is_between(-16, 15)
+                    }
+
+                    #[inline]
+                    fn diff_24(dr: i16, dg: i16, db: i16, da: i16) -> [u8; 3] {
+                        let mut dest = [0u8; 3];
+
+                        dest[0] = Qoi::DIFF_24 | ((dr + 16) >> 1) as u8;
+
+                        dest[1] = ((dr + 16) << 7) as u8
+                            | ((dg + 16) << 2) as u8
+                            | ((db + 16) >> 3) as u8;
+
+                        dest[2] = ((db + 16) << 5) as u8 | (da + 16) as u8;
+
+                        dest
+                    }
+
+                    if can_diff_24(dr, dg, db, da) {
+                        if can_diff_8(dr, dg, db, da) {
+                            dest[dest_pos] = diff_8(dr, dg, db);
                             dest_pos += 1;
+                        } else if can_diff_16(dr, dg, db, da) {
+                            dest[dest_pos..dest_pos + 2].copy_from_slice(&diff_16(dr, dg, db));
+                            dest_pos += 2;
                         } else {
-                            dest[dest_pos] = Qoi::DIFF_24 | ((dr + 16) >> 1) as u8;
-                            dest_pos += 1;
-
-                            dest[dest_pos] = ((dr + 16) << 7) as u8
-                                | ((dg + 16) << 2) as u8
-                                | ((db + 16) >> 3) as u8;
-                            dest_pos += 1;
-
-                            dest[dest_pos] = ((db + 16) << 5) as u8 | (da + 16) as u8;
-                            dest_pos += 1;
+                            dest[dest_pos..dest_pos + 3].copy_from_slice(&diff_24(dr, dg, db, da));
+                            dest_pos += 3;
                         }
                     } else {
                         let mut command = Qoi::COLOR;
