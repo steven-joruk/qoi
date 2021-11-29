@@ -16,6 +16,7 @@ pub enum QoiError {
     InvalidHeader,
     TooBig,
     Io(std::io::Error),
+    CacheIndex,
 }
 
 impl Error for QoiError {}
@@ -35,6 +36,7 @@ impl Display for QoiError {
             Self::Io(inner) => {
                 f.write_fmt(format_args!("An I/O error occurred: {}", inner.to_string()))
             }
+            Self::CacheIndex => f.write_str("The cache index is invalid"),
         }
     }
 }
@@ -65,7 +67,7 @@ impl TryFrom<u8> for Channels {
 }
 
 impl Channels {
-    #[inline]
+    #[inline(always)]
     fn len(&self) -> u8 {
         match self {
             Self::Three => 3,
@@ -218,6 +220,72 @@ impl QoiHeader {
         };
 
         Ok(header)
+    }
+}
+
+pub(crate) struct FallibleReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> FallibleReader<'a> {
+    #[inline(always)]
+    fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+
+    #[inline(always)]
+    fn read(&mut self) -> Result<u8, QoiError> {
+        let value = *self.buf.get(self.pos).ok_or(QoiError::InputSize)?;
+        self.pos += 1;
+        Ok(value)
+    }
+
+    #[inline(always)]
+    fn read_slice(&mut self, length: usize) -> Result<&[u8], QoiError> {
+        if self.buf.len() > self.pos + length {
+            let slice = &self.buf[self.pos..self.pos + length];
+            self.pos += length;
+            Ok(slice)
+        } else {
+            Err(QoiError::InputSize)
+        }
+    }
+}
+
+pub(crate) struct FallibleWriter<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> FallibleWriter<'a> {
+    #[inline(always)]
+    fn new(buf: &'a mut [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+
+    #[inline(always)]
+    fn write(&mut self, value: u8) -> Result<(), QoiError> {
+        self.write_at(self.pos, value)?;
+        self.pos += 1;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn write_at(&mut self, pos: usize, value: u8) -> Result<(), QoiError> {
+        *(self.buf.get_mut(pos).ok_or(QoiError::OutputTooSmall)?) = value;
+        Ok(())
+    }
+
+    #[inline]
+    fn write_slice(&mut self, slice: &[u8]) -> Result<(), QoiError> {
+        for (index, v) in slice.iter().enumerate() {
+            self.write_at(self.pos + index, *v)?;
+        }
+
+        self.pos += slice.len();
+
+        Ok(())
     }
 }
 
